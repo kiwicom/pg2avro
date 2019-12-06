@@ -1,3 +1,4 @@
+from collections import OrderedDict
 from typing import List
 from pg2avro import get_avro_schema, get_avro_row_dict
 import json
@@ -63,6 +64,25 @@ def test_get_avro_row_row_types():
                 "list": "another list of strings".split(),
                 "is_working": False,
             },
+        ],
+        # Compatible Dicts, but extended class.
+        [
+            OrderedDict(
+                {
+                    "name": "example-01",
+                    "number": 1.0,
+                    "list": "list of strings".split(),
+                    "is_working": True,
+                }
+            ),
+            OrderedDict(
+                {
+                    "name": "example-02",
+                    "number": 2.5,
+                    "list": "another list of strings".split(),
+                    "is_working": False,
+                }
+            ),
         ],
         # Compatible Tuples.
         [

@@ -22,7 +22,7 @@ AVRO_POSTGRES_MAP = {
         "character varying",
         "interval",
     ),
-    "int": ("smallint", "integer", "int2", "int4", "date", "time"),
+    "int": ("smallint", "integer", "int", "int2", "int4", "date", "time"),
     "long": (
         "bigint",
         "int8",
@@ -128,7 +128,7 @@ def get_avro_schema(
         elif isinstance(column, object) and type(column) not in BUILTIN_TYPES:
             column = _object_to_column(column, column_mapping)
         else:
-            raise Exception("Unsupported column type.")
+            raise Exception(f"Unsupported column type {type(column)}.")
 
         # Ensure default values.
         if not hasattr(column, "nullable"):
@@ -193,9 +193,7 @@ def get_avro_row_dict(row, schema: Dict) -> Dict:
 
 
 def _get_row_attr(row, attribute: str, fields_schema: Dict):
-    if isinstance(row, object) and type(row) not in BUILTIN_TYPES:
-        return getattr(row, attribute)
-    elif isinstance(row, Dict):
+    if isinstance(row, Dict):
         return row.get(attribute)
     elif isinstance(row, tuple) or isinstance(row, list):
         index = next(
@@ -207,6 +205,8 @@ def _get_row_attr(row, attribute: str, fields_schema: Dict):
             None,
         )
         return row[index]
+    elif isinstance(row, object) and type(row) not in BUILTIN_TYPES:
+        return getattr(row, attribute)
     raise Exception("Unsupported row type.")
 
 
