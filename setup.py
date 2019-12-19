@@ -13,7 +13,7 @@ with open("requirements-test.in") as f:
 
 setup(
     name="pg2avro",
-    version="0.1.2",
+    version="0.2",
     license="MIT",
     description="Utility generating avro files from postgres.",
     long_description=README,
