@@ -37,7 +37,13 @@ AVRO_POSTGRES_MAP = {
 }
 ARRAY_TYPES = ("array", "daterange", "int4range")
 LOGICAL_TYPES_AVRO_MAP = {
-    "timestamp-millis": ("time", "timestamp", "timestamptz"),
+    "timestamp-millis": (
+        "time",
+        "timestamp",
+        "timestamptz",
+        "timestamp without time zone",
+        "timestamp with time zone",
+    ),
     "date": ("date",),
 }
 REQUIRED_COLUMN_ATTRIBUTES = ["name", "type"]
