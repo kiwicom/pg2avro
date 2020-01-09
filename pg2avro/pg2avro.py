@@ -314,13 +314,11 @@ def _get_avro_type(column) -> Union[Dict, str]:
     logical_type = LOGICAL_TYPES_MAP.get(column_type, None)
 
     if avro_type:
-        if is_array_type:
-            if logical_type:
-                avro_type = {"type": avro_type, "logicalType": logical_type}
-            return {"type": "array", "items": avro_type}
-
         if logical_type:
             avro_type = {"type": avro_type, "logicalType": logical_type}
+
+        if is_array_type:
+            avro_type = {"type": "array", "items": avro_type}
 
         if column.nullable:
             avro_type = ["null", avro_type]

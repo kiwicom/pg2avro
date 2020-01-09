@@ -119,6 +119,7 @@ def test_get_avro_schema_custom_mapping():
         Col(n="bpchar", un="bpchar", nul=False),
         Col(n="varchar", un="varchar", nul=False),
         Col(n="array", un="_varchar", nul=False),
+        Col(n="array_n", un="_varchar", nul=True),
         Col(n="date", un="date", nul=False),
         Col(n="time", un="time", nul=False),
         Col(n="timestamp", un="timestamp", nul=False),
@@ -147,6 +148,7 @@ def test_get_avro_schema_custom_mapping():
             {"name": "bpchar", "type": "string"},
             {"name": "varchar", "type": "string"},
             {"name": "array", "type": {"items": "string", "type": "array"}},
+            {"name": "array_n", "type": ["null", {"items": "string", "type": "array"}]},
             {"name": "date", "type": {"logicalType": "date", "type": "int"}},
             {
                 "name": "time",
