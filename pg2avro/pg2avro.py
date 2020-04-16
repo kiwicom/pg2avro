@@ -1,7 +1,7 @@
 from datetime import datetime, date, timedelta
-from decimal import Decimal
+import re
 from textwrap import dedent
-from typing import Iterable, Dict, Union, List
+from typing import Iterable, Dict, Union, List, Optional
 import json
 from sqlalchemy.sql.schema import Column as SqlAlchemyColumn
 from psycopg2.extras import NumericRange, DateRange
@@ -31,9 +31,10 @@ AVRO_POSTGRES_MAP = {
         "timestamp without time zone",
         "timestamp with time zone",
     ),
-    "float": ("numeric", "real", "float4"),
+    "float": ("real", "float4"),
     "double": ("float8", "double precision", "double_precision"),
     "array": ("array", "daterange", "int4range", "int2vector"),
+    "bytes": ("numeric",),
 }
 ARRAY_TYPES = ("array", "daterange", "int4range")
 LOGICAL_TYPES_AVRO_MAP = {
@@ -45,9 +46,14 @@ LOGICAL_TYPES_AVRO_MAP = {
         "timestamp with time zone",
     ),
     "date": ("date",),
+    "decimal": ("numeric",),
 }
 REQUIRED_COLUMN_ATTRIBUTES = ["name", "type"]
-COLUMN_ATTRIBUTES = REQUIRED_COLUMN_ATTRIBUTES + ["nullable"]
+COLUMN_ATTRIBUTES = REQUIRED_COLUMN_ATTRIBUTES + [
+    "nullable",
+    "numeric_precision",
+    "numeric_scale",
+]
 
 BUILTIN_TYPES = [tuple, list, set, int, float, str, dict]
 
@@ -65,10 +71,19 @@ LOGICAL_TYPES_MAP = {
 
 
 class ColumnMapping:
-    def __init__(self, name: str, type: str, nullable: str = None):
+    def __init__(
+        self,
+        name: str,
+        type: str,
+        nullable: str,
+        numeric_precision: str,
+        numeric_scale: str,
+    ):
         self.name = name
         self.type = type
         self.nullable = nullable
+        self.numeric_precision = numeric_precision
+        self.numeric_scale = numeric_scale
 
 
 class ColumnAdapter(object):
@@ -81,10 +96,19 @@ class ColumnAdapter(object):
 
 
 class Column:
-    def __init__(self, name: str, type: str, nullable: bool = True):
+    def __init__(
+        self,
+        name: str,
+        type: str,
+        nullable: bool = True,
+        numeric_precision: Optional[int] = None,
+        numeric_scale: Optional[int] = None,
+    ):
         self.name = name
         self.type = type
         self.nullable = nullable
+        self.numeric_scale = numeric_scale
+        self.numeric_precision = numeric_precision
 
 
 def get_avro_schema(
@@ -180,8 +204,6 @@ def get_avro_row_dict(row, schema: Dict) -> Dict:
             avro_dict[k] = (v - date(1970, 1, 1)).days
         elif isinstance(v, timedelta):
             avro_dict[k] = str(v)
-        elif isinstance(v, Decimal):
-            avro_dict[k] = float(v)
         # Map specific types from supported libraries.
         # TODO: Cover all types that require special handling.
         elif isinstance(v, DateRange):
@@ -229,6 +251,8 @@ def _dict_to_column(column: Dict, column_mapping: ColumnMapping) -> Column:
             name=column.get(column_mapping.name),
             type=column.get(column_mapping.type),
             nullable=column.get(column_mapping.nullable, True),
+            numeric_precision=column.get(column_mapping.numeric_precision, None),
+            numeric_scale=column.get(column_mapping.numeric_scale, None),
         )
     else:
         # No column mapping, assume user provided compatible column data.
@@ -238,6 +262,8 @@ def _dict_to_column(column: Dict, column_mapping: ColumnMapping) -> Column:
             name=column.get("name"),
             type=column.get("type"),
             nullable=column.get("nullable", True),
+            numeric_precision=column.get("numeric_precision", None),
+            numeric_scale=column.get("numeric_scale", None),
         )
     return column
 
@@ -256,10 +282,22 @@ def _object_to_column(column, column_mapping: ColumnMapping) -> Column:
             name=getattr(column, column_mapping.name),
             type=getattr(column, column_mapping.type),
             nullable=getattr(column, column_mapping.nullable, True),
+            numeric_precision=getattr(column, column_mapping.numeric_precision, None),
+            numeric_scale=getattr(column, column_mapping.numeric_scale, None),
         )
     else:
         # No column mapping, detect passed column type and try to match it with our internal mappings.
         if isinstance(column, SqlAlchemyColumn):
+            type_str = str(column.type)
+            numeric_precision = None
+            numeric_scale = None
+
+            # Special handling for types that have more constraints
+            if "numeric" in type_str.lower():
+                num_def = re.findall(r"\d+", type_str)
+                numeric_precision = int(num_def[0]) if len(num_def) > 0 else None
+                numeric_scale = int(num_def[1]) if len(num_def) > 1 else None
+
             column = ColumnAdapter(
                 column,
                 name=column.name,
@@ -267,6 +305,8 @@ def _object_to_column(column, column_mapping: ColumnMapping) -> Column:
                 if column.type.__visit_name__ == "ARRAY"
                 else column.type.__visit_name__,
                 nullable=column.nullable,
+                numeric_precision=numeric_precision,
+                numeric_scale=numeric_scale,
             )
         else:
             # No matching internal mapping found, assume user provided compatible column data.
@@ -320,6 +360,12 @@ def _get_avro_type(column) -> Union[Dict, str]:
         if is_array_type:
             avro_type = {"type": "array", "items": avro_type}
 
+        # Special cases handling.
+        if logical_type == "decimal":
+            avro_type["precision"] = column.numeric_precision or 24
+            avro_type["scale"] = column.numeric_scale or 2
+
+        # Nullable types handling.
         if column.nullable:
             avro_type = ["null", avro_type]
 

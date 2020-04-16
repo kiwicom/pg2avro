@@ -1,6 +1,7 @@
 from pg2avro import get_avro_schema, ColumnMapping
 from sqlalchemy import (
     Column,
+    Numeric,
     BIGINT,
     BOOLEAN,
     CHAR,
@@ -23,6 +24,8 @@ from sqlalchemy.dialects.postgresql import (
     DOUBLE_PRECISION,
 )
 
+from typing import Optional
+
 
 def test_get_avro_schema_sqlalchemy():
     """
@@ -37,7 +40,7 @@ def test_get_avro_schema_sqlalchemy():
         Column(SMALLINT, name="smallint", nullable=False),
         Column(BIGINT, name="bigint", nullable=False),
         Column(INTEGER, name="integer", nullable=False),
-        Column(NUMERIC, name="numeric", nullable=False),
+        Column(NUMERIC(10, 2), name="numeric", nullable=False),
         Column(DOUBLE_PRECISION, name="double_precision", nullable=False),
         Column(BOOLEAN, name="bool", nullable=False),
         Column(DATE, name="date", nullable=False),
@@ -48,7 +51,7 @@ def test_get_avro_schema_sqlalchemy():
         Column(VARCHAR(255), primary_key=True, name="varchar", nullable=False),
         Column(ARRAY(VARCHAR), name="array", nullable=False),
         Column(INTERVAL, name="interval", nullable=False),
-        Column(ENUM(*custom_enum_type), name="enum", nullable=False),
+        Column(ENUM(name="some_enum", *custom_enum_type), name="enum", nullable=False),
         Column(UUID, name="uuid", nullable=False),
         Column(JSONB, name="jsonb", nullable=False),
         Column(JSON, name="json", nullable=False),
@@ -65,7 +68,15 @@ def test_get_avro_schema_sqlalchemy():
             {"name": "smallint", "type": "int"},
             {"name": "bigint", "type": "long"},
             {"name": "integer", "type": "int"},
-            {"name": "numeric", "type": "float"},
+            {
+                "name": "numeric",
+                "type": {
+                    "logicalType": "decimal",
+                    "type": "bytes",
+                    "precision": 10,
+                    "scale": 2,
+                },
+            },
             {"name": "double_precision", "type": "double"},
             {"name": "bool", "type": "boolean"},
             {"name": "date", "type": {"logicalType": "date", "type": "int"}},
@@ -102,16 +113,25 @@ def test_get_avro_schema_custom_mapping():
     """
 
     class Col:
-        def __init__(self, n: str, un: str, nul: bool):
+        def __init__(
+            self,
+            n: str,
+            un: str,
+            nul: bool,
+            np: Optional[int] = None,
+            ns: Optional[int] = None,
+        ):
             self.n = n
             self.un = un
             self.nul = nul
+            self.np = np
+            self.ns = ns
 
     columns = [
         Col(n="smallint", un="int2", nul=False),
         Col(n="bigint", un="int8", nul=False),
         Col(n="integer", un="int4", nul=False),
-        Col(n="numeric", un="numeric", nul=False),
+        Col(n="numeric", un="numeric", nul=False, np=3, ns=7),
         Col(n="double_precision", un="float8", nul=False),
         Col(n="real", un="float4", nul=False),
         Col(n="bool", un="bool", nul=False),
@@ -140,7 +160,15 @@ def test_get_avro_schema_custom_mapping():
             {"name": "smallint", "type": "int"},
             {"name": "bigint", "type": "long"},
             {"name": "integer", "type": "int"},
-            {"name": "numeric", "type": "float"},
+            {
+                "name": "numeric",
+                "type": {
+                    "logicalType": "decimal",
+                    "type": "bytes",
+                    "precision": 3,
+                    "scale": 7,
+                },
+            },
             {"name": "double_precision", "type": "double"},
             {"name": "real", "type": "float"},
             {"name": "bool", "type": "boolean"},
@@ -169,7 +197,13 @@ def test_get_avro_schema_custom_mapping():
         table_name,
         namespace,
         columns,
-        ColumnMapping(name="n", type="un", nullable="nul"),
+        ColumnMapping(
+            name="n",
+            type="un",
+            nullable="nul",
+            numeric_precision="np",
+            numeric_scale="ns",
+        ),
     )
 
     assert expected == actual
