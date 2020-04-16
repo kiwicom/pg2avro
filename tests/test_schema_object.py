@@ -2,6 +2,7 @@ import pytest
 from pg2avro import get_avro_schema, ColumnMapping
 from sqlalchemy import Column, BOOLEAN, SMALLINT, VARCHAR
 from sqlalchemy.dialects.postgresql import ARRAY
+from typing import Optional
 
 
 def test_get_avro_schema_sqlalchemy():
@@ -41,10 +42,19 @@ def test_get_avro_schema_custom_mapping():
     """
 
     class Col:
-        def __init__(self, n: str, un: str, nul: bool):
+        def __init__(
+            self,
+            n: str,
+            un: str,
+            nul: bool,
+            np: Optional[int] = None,
+            ns: Optional[int] = None,
+        ):
             self.n = n
             self.un = un
             self.nul = nul
+            self.np = np
+            self.ns = ns
 
     columns = [
         Col(n="smallint", un="int2", nul=False),
@@ -70,7 +80,13 @@ def test_get_avro_schema_custom_mapping():
         table_name,
         namespace,
         columns,
-        ColumnMapping(name="n", type="un", nullable="nul"),
+        ColumnMapping(
+            name="n",
+            type="un",
+            nullable="nul",
+            numeric_precision="np",
+            numeric_scale="ns",
+        ),
     )
 
     assert expected == actual

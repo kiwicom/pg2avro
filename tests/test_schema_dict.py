@@ -23,7 +23,13 @@ def test_get_avro_schema_custom_mapping():
         table_name,
         namespace,
         columns,
-        ColumnMapping(name="c1", type="c2", nullable="c4"),
+        ColumnMapping(
+            name="c1",
+            type="c2",
+            nullable="c4",
+            numeric_precision="c5",
+            numeric_scale="c6",
+        ),
     )
 
     assert expected == actual
