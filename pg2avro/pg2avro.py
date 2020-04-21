@@ -69,6 +69,13 @@ LOGICAL_TYPES_MAP = {
     for postgres_type in postgres_types
 }
 
+# Some settings and thresholds.
+# TODO: consider making this a proper class and refactor constants to be overridable there.
+NUMERIC_PRECISION_DEFAULT = 38
+NUMERIC_SCALE_DEFAULT = 9
+NUMERIC_RETYPE_SCALE_THRESHOLD = 9
+NUMERIC_RETYPE_TYPE = "double"
+
 
 class ColumnMapping:
     def __init__(
@@ -116,6 +123,7 @@ def get_avro_schema(
     namespace: str,
     columns: Iterable,
     column_mapping: ColumnMapping = None,
+    mapping_overrides: Optional[Dict] = None,
 ) -> Dict:
     """
     Generates AVRO Schema for given postgres schema.
@@ -140,9 +148,13 @@ def get_avro_schema(
     :param table_name: The name of the table.
     :param namespace: The namespace of the schema.
     :param columns: Columns to generate schema for.
-    :param column_mapping:
+    :param column_mapping: Custom column mapping.
+    :param mapping_overrides: Custom mapping overrides.
     :return: Avro schema dictionary.
     """
+
+    if mapping_overrides is None:
+        mapping_overrides = {}
 
     avro_schema = {
         "namespace": namespace,
@@ -168,14 +180,16 @@ def get_avro_schema(
         if column.type is not None:
             column.type = column.type.lower()
 
-        field = {"name": column.name, "type": _get_avro_type(column)}
+        field = {"name": column.name, "type": _get_avro_type(column, mapping_overrides)}
 
         avro_schema["fields"].append(field)
 
     return avro_schema
 
 
-def get_avro_row_dict(row, schema: Dict) -> Dict:
+def get_avro_row_dict(
+    row, schema: Dict, mapping_overrides: Optional[Dict] = None
+) -> Dict:
     """
     Generates Avro row dictionary for given row using given avro schema.
 
@@ -184,15 +198,31 @@ def get_avro_row_dict(row, schema: Dict) -> Dict:
     :param row: Object to generate Avro row for.
     :type row: Object with compatible attributes, tuple, list or dict.
     :param schema: Schema to generate the Avro row with.
+    :param mapping_overrides: Custom mapping overrides.
     :return: Row dict.
     """
     avro_dict = {}
+
+    if mapping_overrides is None:
+        mapping_overrides = {}
 
     for schema_row in schema["fields"]:
         k = schema_row["name"]
         # TODO: check if row is compatible with schema.
         v = _get_row_attr(row, k, schema["fields"])
         column_type = schema_row["type"]
+
+        # Try to typecast if custom mapping and value are present.
+
+        if k in mapping_overrides and v is not None:
+            try:
+                typecast = mapping_overrides[k]["python_type"]
+                if typecast in BUILTIN_TYPES:
+                    v = typecast(v)
+            except KeyError:
+                raise KeyError(
+                    f"Missing 'python_type' key in mapping override for '{k}' column."
+                )
 
         if v is None and column_type == "array":
             avro_dict[k] = []
@@ -331,13 +361,22 @@ def _check_required_attributes(attributes: List):
         )
 
 
-def _get_avro_type(column) -> Union[Dict, str]:
+def _get_avro_type(column: Column, mapping_overrides: Dict) -> Union[Dict, List, str]:
     """
     Determine Avro type for specified column.
 
     :param column: Column object to determine type for. Compatibility assumed at this point.
     :return: Column Avro type definition.
     """
+    # User may have specified an override for this column, use that first.
+    if column.name in mapping_overrides:
+        try:
+            column.type = mapping_overrides[column.name]["pg_type"]
+        except KeyError:
+            raise KeyError(
+                f"Missing 'pg_type' key in mapping override for '{column.name}' column."
+            )
+
     is_array_type = False
 
     if column.type.startswith("_"):
@@ -361,9 +400,19 @@ def _get_avro_type(column) -> Union[Dict, str]:
             avro_type = {"type": "array", "items": avro_type}
 
         # Special cases handling.
+        # Postgres Numeric type:
+        # - if precision and scale are present, use them, otherwise use defaults
+        # - if precision and scale are present, but higher than threshold,
         if logical_type == "decimal":
-            avro_type["precision"] = column.numeric_precision or 24
-            avro_type["scale"] = column.numeric_scale or 2
+            precision = column.numeric_precision or NUMERIC_PRECISION_DEFAULT
+            scale = column.numeric_scale or NUMERIC_SCALE_DEFAULT
+
+            if scale > NUMERIC_RETYPE_SCALE_THRESHOLD:
+                # Some cases cannot be handled by numeric (e.g. Google BigQuery with high scale)
+                avro_type = NUMERIC_RETYPE_TYPE
+            else:
+                avro_type["precision"] = precision
+                avro_type["scale"] = scale
 
         # Nullable types handling.
         if column.nullable:
