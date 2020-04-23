@@ -1,7 +1,6 @@
-from pg2avro import get_avro_schema, ColumnMapping
+from pg2avro import get_avro_schema, ColumnMapping, get_avro_row_dict
 from sqlalchemy import (
     Column,
-    Numeric,
     BIGINT,
     BOOLEAN,
     CHAR,
@@ -41,6 +40,9 @@ def test_get_avro_schema_sqlalchemy():
         Column(BIGINT, name="bigint", nullable=False),
         Column(INTEGER, name="integer", nullable=False),
         Column(NUMERIC(10, 2), name="numeric", nullable=False),
+        Column(NUMERIC(10, 10), name="numeric_to_double", nullable=False),
+        Column(NUMERIC, name="numeric_defaults", nullable=False),
+        Column(NUMERIC, name="numeric_nullable", nullable=True),
         Column(DOUBLE_PRECISION, name="double_precision", nullable=False),
         Column(BOOLEAN, name="bool", nullable=False),
         Column(DATE, name="date", nullable=False),
@@ -76,6 +78,28 @@ def test_get_avro_schema_sqlalchemy():
                     "precision": 10,
                     "scale": 2,
                 },
+            },
+            {"name": "numeric_to_double", "type": "double"},
+            {
+                "name": "numeric_defaults",
+                "type": {
+                    "logicalType": "decimal",
+                    "type": "bytes",
+                    "precision": 38,
+                    "scale": 9,
+                },
+            },
+            {
+                "name": "numeric_nullable",
+                "type": [
+                    "null",
+                    {
+                        "logicalType": "decimal",
+                        "type": "bytes",
+                        "precision": 38,
+                        "scale": 9,
+                    },
+                ],
             },
             {"name": "double_precision", "type": "double"},
             {"name": "bool", "type": "boolean"},
@@ -132,6 +156,9 @@ def test_get_avro_schema_custom_mapping():
         Col(n="bigint", un="int8", nul=False),
         Col(n="integer", un="int4", nul=False),
         Col(n="numeric", un="numeric", nul=False, np=3, ns=7),
+        Col(n="numeric_to_double", un="numeric", nul=False, np=10, ns=10),
+        Col(n="numeric_defaults", un="numeric", nul=False),
+        Col(n="numeric_nullable", un="numeric", nul=True),
         Col(n="double_precision", un="float8", nul=False),
         Col(n="real", un="float4", nul=False),
         Col(n="bool", un="bool", nul=False),
@@ -169,6 +196,28 @@ def test_get_avro_schema_custom_mapping():
                     "scale": 7,
                 },
             },
+            {"name": "numeric_to_double", "type": "double"},
+            {
+                "name": "numeric_defaults",
+                "type": {
+                    "logicalType": "decimal",
+                    "type": "bytes",
+                    "precision": 38,
+                    "scale": 9,
+                },
+            },
+            {
+                "name": "numeric_nullable",
+                "type": [
+                    "null",
+                    {
+                        "logicalType": "decimal",
+                        "type": "bytes",
+                        "precision": 38,
+                        "scale": 9,
+                    },
+                ],
+            },
             {"name": "double_precision", "type": "double"},
             {"name": "real", "type": "float"},
             {"name": "bool", "type": "boolean"},
@@ -205,5 +254,109 @@ def test_get_avro_schema_custom_mapping():
             numeric_scale="ns",
         ),
     )
+
+    assert expected == actual
+
+
+def test_mapping_overrides():
+    """
+    Test mapping overrides
+    """
+
+    from pg2avro.pg2avro import Column
+
+    table_name = "test_table"
+    namespace = "test_namespace"
+
+    columns = [
+        Column(name="int_to_string", type="int"),
+        Column(name="string_to_numeric", type="string"),
+        Column(name="not_overriden", type="int"),
+        Column(name="numeric_to_float", type="numeric"),
+        Column(name="array_to_string", type="_varchar"),
+        Column(name="string_to_array", type="varchar"),
+    ]
+    overrides = {
+        "int_to_string": {"pg_type": "string", "python_type": str},
+        "string_to_numeric": {"pg_type": "numeric", "python_type": float},
+        "not_matching_override_name": {"pg_type": "int", "python_type": int},
+        "numeric_to_float": {"pg_type": "float8", "python_type": float},
+        "array_to_string": {"pg_type": "string", "python_type": str},
+        "string_to_array": {"pg_type": "_string", "python_type": list},
+    }
+
+    expected_schema = {
+        "name": table_name,
+        "namespace": namespace,
+        "type": "record",
+        "fields": [
+            {"name": "int_to_string", "type": ["null", "string"]},
+            {
+                "name": "string_to_numeric",
+                "type": [
+                    "null",
+                    {
+                        "type": "bytes",
+                        "logicalType": "decimal",
+                        "precision": 38,
+                        "scale": 9,
+                    },
+                ],
+            },
+            {"name": "not_overriden", "type": ["null", "int"]},
+            {"name": "numeric_to_float", "type": ["null", "double"]},
+            {"name": "array_to_string", "type": ["null", "string"]},
+            {
+                "name": "string_to_array",
+                "type": ["null", {"type": "array", "items": "string"}],
+            },
+        ],
+    }
+
+    schema = get_avro_schema(
+        table_name, namespace, columns, mapping_overrides=overrides
+    )
+
+    assert expected_schema == schema
+
+    # Now data
+    rows_data = [
+        {
+            "int_to_string": 1,
+            "string_to_numeric": "2.0",
+            "not_overriden": 3,
+            "numeric_to_float": 0.12345678910,
+            "array_to_string": [1, 2, "a", "b"],
+            "string_to_array": "asd",
+        },
+        {
+            "int_to_string": None,
+            "string_to_numeric": None,
+            "not_overriden": None,
+            "numeric_to_float": None,
+            "array_to_string": None,
+            "string_to_array": None,
+        },
+    ]
+    expected = [
+        {
+            "int_to_string": "1",
+            "string_to_numeric": 2.0,
+            "not_overriden": 3,
+            "numeric_to_float": 0.12345678910,
+            "array_to_string": "[1, 2, 'a', 'b']",
+            "string_to_array": ["a", "s", "d"],
+        },
+        {
+            "int_to_string": None,
+            "string_to_numeric": None,
+            "not_overriden": None,
+            "numeric_to_float": None,
+            "array_to_string": None,
+            "string_to_array": None,
+        },
+    ]
+
+    actual = [get_avro_row_dict(r, schema, overrides) for r in rows_data]
 
     assert expected == actual

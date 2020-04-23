@@ -90,3 +90,28 @@ rows = [
 data = [get_avro_row_dict(row, schema) for row in rows]
 
 ```
+
+### Overriding mappings
+
+Some cases might require overriding standard mapping. An example of such scenario is moving pg data into google bigquery
+where numeric types are handled differently and cannot accept arbitrary scale, so we may want to override that into float. 
+
+To do so, simply pass your mapping overrides as a column name keyed dict to the `get_avro_schema` function like so:
+
+```
+columns = [
+    {"name": "some_special_field", "type": "int"},
+    {"name": "numeric_with_high_scale", "type": "numeric(20, 15)"},
+]
+overrides = {
+    "some_special_field": {"pg_type": "string", "python_type": str},
+    "numeric_with_high_scale": {"pg_type": "float8", "python_type": float},
+}
+
+schema = get_avro_schema(table_name, namespace, columns, mapping_overrides=overrides)
+```
+
+- `pg_type` - the type you want the column to look like for pg2avro instead of what was retrieved from pg/sqlalchemy etc.
+- `python_type` - built in python type to use for typecasting. Use `str`, `float`, `int`, `tuple`, `list`, `set` and `dict` here.
+
+And your `some_special_field` will be mapped into a string instead of int accordingly.
