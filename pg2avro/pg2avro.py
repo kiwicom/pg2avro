@@ -382,6 +382,9 @@ def _get_avro_type(column: Column, mapping_overrides: Dict) -> Union[Dict, List,
     if column.type.startswith("_"):
         is_array_type = True
         column.type = column.type[1:]
+    elif column.type.endswith('[]'):
+        is_array_type = True
+        column.type = column.type[:-2]
 
     if column.type in TYPE_MAP:
         column_type = column.type
